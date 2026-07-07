@@ -282,8 +282,21 @@ function buildDisplayList() {
   if (['单选题', '多选题', '判断题', '简答题'].includes(filterType)) list = list.filter(q => q.type === filterType);
   else if (filterType === 'unanswered') list = list.filter(q => !bs().answeredIds.has(q.id));
   else if (filterType === 'wrong') list = list.filter(q => bs().wrongIds.has(q.id));
-  if (shuffleMode) list = [...list].sort(() => Math.random() - 0.5);
-  else list.sort((a, b) => a.id - b.id);
+  if (shuffleMode) {
+    const typeOrder = ['单选题', '多选题', '判断题', '简答题'];
+    let grouped = [];
+    for (const t of typeOrder) {
+      const group = list.filter(q => q.type === t);
+      for (let i = group.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [group[i], group[j]] = [group[j], group[i]];
+      }
+      grouped = grouped.concat(group);
+    }
+    list = grouped;
+  } else {
+    list.sort((a, b) => a.id - b.id);
+  }
   displayList = list;
   updateStats();
 }
