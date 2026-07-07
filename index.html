@@ -185,10 +185,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
 <div class="container" style="padding-top:16px">
   <!-- Bank selector -->
   <div class="bank-tabs" id="bankTabs">
-    <div class="bank-tab active" data-bank="tt" onclick="switchBank('tt')">
+    <div class="bank-tab" data-bank="tt" onclick="switchBank('tt')">
       团体赛题库<br><span class="count">23个护理团体标准 · 200题</span>
     </div>
-    <div class="bank-tab" data-bank="gr" onclick="switchBank('gr')">
+    <div class="bank-tab active" data-bank="gr" onclick="switchBank('gr')">
       个人赛题库<br><span class="count">4个核心行业标准 · 200题</span>
     </div>
   </div>
@@ -250,17 +250,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
 
 <script>
 // ==================== GLOBAL STATE ====================
-let currentBank = 'tt'; // 'tt' or 'gr'
+let currentBank = 'gr'; // 'tt' or 'gr', 默认个人赛
 let allQuestions = { tt: [], gr: [] };
-let displayList = [];       // filtered & ordered questions
+let displayList = [];
 let currentIndex = 0;
-let userAnswers = {};       // key: question id, value: user's answer
-let answeredIds = new Set();
-let correctIds = new Set();
-let wrongIds = new Set();
 let filterType = 'all';
 let autoNext = false;
 let viewMode = 'practice';
+// 每个题库独立的进度
+let bankState = {
+  tt: { userAnswers: {}, answeredIds: new Set(), correctIds: new Set(), wrongIds: new Set() },
+  gr: { userAnswers: {}, answeredIds: new Set(), correctIds: new Set(), wrongIds: new Set() }
+};
 
 // ==================== MD PARSER ====================
 function parseMarkdown(mdText) {
@@ -341,7 +342,20 @@ function parseMarkdown(mdText) {
 // ==================== DATA LOADING ====================
 // removed - using embedded data
 
-// replaced by embedded init
+async function init() {
+  await Promise.all([
+    loadBank('tt', '团体赛_复习自测试卷.md'),
+    loadBank('gr', '个人赛_复习自测试卷.md')
+  ]);
+  if (allQuestions['tt'].length === 0 && allQuestions['gr'].length === 0) {
+    document.getElementById('questionArea').innerHTML =
+      '<div class="empty"><div class="icon">⚠️</div><p>题库加载失败</p><p style="font-size:.85em">请确保 .md 文件与 index.html 在同一目录下，并通过HTTP服务器访问（不能直接双击打开HTML文件）。</p></div>';
+    return;
+  }
+  // Load saved progress
+  loadProgress();
+  switchBank('gr');
+}
 
 // ==================== BANK SWITCHING ====================
 function switchBank(bankKey) {
@@ -351,7 +365,11 @@ function switchBank(bankKey) {
   buildDisplayList();
   currentIndex = 0;
   renderAll();
+  saveProgress(); // 保存当前题库进度
 }
+
+// 便捷访问当前题库状态
+function bs() { return bankState[currentBank]; }
 
 // ==================== DISPLAY LIST ====================
 function buildDisplayList() {
@@ -361,9 +379,9 @@ function buildDisplayList() {
   if (['单选题', '多选题', '判断题', '简答题'].includes(filterType)) {
     list = list.filter(q => q.type === filterType);
   } else if (filterType === 'unanswered') {
-    list = list.filter(q => !answeredIds.has(q.id));
+    list = list.filter(q => !bs().answeredIds.has(q.id));
   } else if (filterType === 'wrong') {
-    list = list.filter(q => wrongIds.has(q.id));
+    list = list.filter(q => bs().wrongIds.has(q.id));
   }
 
   // Sort by ID
@@ -388,10 +406,10 @@ function updateStats() {
   const list = displayList;
   let done = 0, correct = 0, wrong = 0;
   for (const q of list) {
-    if (answeredIds.has(q.id)) {
+    if (bs().answeredIds.has(q.id)) {
       done++;
-      if (correctIds.has(q.id)) correct++;
-      if (wrongIds.has(q.id)) wrong++;
+      if (bs().correctIds.has(q.id)) correct++;
+      if (bs().wrongIds.has(q.id)) wrong++;
     }
   }
   document.getElementById('statDone').textContent = done;
@@ -420,10 +438,10 @@ function renderQuestion() {
   if (currentIndex >= displayList.length) currentIndex = displayList.length - 1;
 
   const q = displayList[currentIndex];
-  const ua = userAnswers[q.id];
-  const isAnswered = answeredIds.has(q.id);
-  const isCorrect = correctIds.has(q.id);
-  const isWrong = wrongIds.has(q.id);
+  const ua = bs().userAnswers[q.id];
+  const isAnswered = bs().answeredIds.has(q.id);
+  const isCorrect = bs().correctIds.has(q.id);
+  const isWrong = bs().wrongIds.has(q.id);
   const isBrowse = viewMode === 'browse';
 
   let html = `<div class="q-card">`;
@@ -512,20 +530,20 @@ function renderQuestion() {
 function selectOption(label) {
   const q = displayList[currentIndex];
   if (!q) return;
-  if (answeredIds.has(q.id) && viewMode !== 'browse') return;
+  if (bs().answeredIds.has(q.id) && viewMode !== 'browse') return;
 
   if (q.type === '单选题' || q.type === '判断题') {
     // Just mark selection, don't auto-submit — user clicks confirm button
-    userAnswers[q.id] = label;
+    bs().userAnswers[q.id] = label;
     renderQuestion();
   } else if (q.type === '多选题') {
     // Multi selection - toggle
-    let selected = (userAnswers[q.id] || '').split('').filter(l => l);
+    let selected = (bs().userAnswers[q.id] || '').split('').filter(l => l);
     const idx = selected.indexOf(label);
     if (idx >= 0) selected.splice(idx, 1);
     else selected.push(label);
     selected.sort();
-    userAnswers[q.id] = selected.join('');
+    bs().userAnswers[q.id] = selected.join('');
     renderQuestion();
   }
 }
@@ -533,7 +551,7 @@ function selectOption(label) {
 function confirmAnswer() {
   const q = displayList[currentIndex];
   if (!q) return;
-  if (!userAnswers[q.id]) {
+  if (!bs().userAnswers[q.id]) {
     alert('请先选择一个选项');
     return;
   }
@@ -543,7 +561,7 @@ function confirmAnswer() {
 function submitMultiChoice() {
   const q = displayList[currentIndex];
   if (!q || q.type !== '多选题') return;
-  if (!userAnswers[q.id]) {
+  if (!bs().userAnswers[q.id]) {
     alert('请至少选择一个选项');
     return;
   }
@@ -558,7 +576,7 @@ function submitShortAnswer() {
     alert('请输入你的答案');
     return;
   }
-  userAnswers[q.id] = ta.value.trim();
+  bs().userAnswers[q.id] = ta.value.trim();
   checkAnswer(q.id);
 }
 
@@ -566,35 +584,32 @@ function checkAnswer(qid) {
   const q = displayList.find(x => x.id === qid);
   if (!q) return;
 
-  const ua = userAnswers[qid] || '';
+  const ua = bs().userAnswers[qid] || '';
   let isCorrect = false;
 
   if (q.type === '单选题' || q.type === '判断题') {
-    // Exact match
     const correct = q.answer.replace(/\s/g, '');
     isCorrect = (ua === correct || q.answer.includes(ua));
   } else if (q.type === '多选题') {
-    // All selected labels match
     const correct = q.answer.replace(/\s/g, '').split(/[,，、]/).filter(l => l).sort().join('');
     const userSel = (ua || '').split('').filter(l => /[A-E]/.test(l)).sort().join('');
     isCorrect = (userSel === correct);
   } else if (q.type === '简答题') {
-    // For short answer, mark as "submitted" but not auto-graded
-    answeredIds.add(qid);
-    correctIds.add(qid); // Count as "reviewed"
+    bs().answeredIds.add(qid);
+    bs().correctIds.add(qid);
     saveProgress();
     renderAll();
     if (autoNext) setTimeout(() => nextQuestion(), 1500);
     return;
   }
 
-  answeredIds.add(qid);
+  bs().answeredIds.add(qid);
   if (isCorrect) {
-    correctIds.add(qid);
-    wrongIds.delete(qid);
+    bs().correctIds.add(qid);
+    bs().wrongIds.delete(qid);
   } else {
-    wrongIds.add(qid);
-    correctIds.delete(qid);
+    bs().wrongIds.add(qid);
+    bs().correctIds.delete(qid);
   }
 
   saveProgress();
@@ -633,8 +648,8 @@ function renderDots() {
     const q = displayList[i];
     let cls = '';
     if (i === currentIndex) cls = 'current';
-    else if (correctIds.has(q.id)) cls = 'done';
-    else if (wrongIds.has(q.id)) cls = 'wrong-dot';
+    else if (bs().correctIds.has(q.id)) cls = 'done';
+    else if (bs().wrongIds.has(q.id)) cls = 'wrong-dot';
     html += `<button class="nav-dot ${cls}" onclick="goTo(${i})" title="第${q.id}题">${q.id}</button>`;
   }
   container.innerHTML = html;
@@ -659,11 +674,18 @@ const QUIZ_VERSION = 2; // 版本号，升级后自动清除旧进度
 function saveProgress() {
   const data = {
     version: QUIZ_VERSION,
-    bank: currentBank,
-    answered: Array.from(answeredIds),
-    correct: Array.from(correctIds),
-    wrong: Array.from(wrongIds),
-    answers: userAnswers
+    ttState: {
+      answered: Array.from(bankState.tt.answeredIds),
+      correct: Array.from(bankState.tt.correctIds),
+      wrong: Array.from(bankState.tt.wrongIds),
+      answers: bankState.tt.userAnswers
+    },
+    grState: {
+      answered: Array.from(bankState.gr.answeredIds),
+      correct: Array.from(bankState.gr.correctIds),
+      wrong: Array.from(bankState.gr.wrongIds),
+      answers: bankState.gr.userAnswers
+    }
   };
   localStorage.setItem('nursing_quiz_progress', JSON.stringify(data));
 }
@@ -673,27 +695,29 @@ function loadProgress() {
     const raw = localStorage.getItem('nursing_quiz_progress');
     if (!raw) return;
     const data = JSON.parse(raw);
-    // 版本不符则丢弃旧数据
     if (data.version !== QUIZ_VERSION) {
       localStorage.removeItem('nursing_quiz_progress');
-      console.log('题库版本更新，已清除旧答题进度');
       return;
     }
-    answeredIds = new Set(data.answered || []);
-    correctIds = new Set(data.correct || []);
-    wrongIds = new Set(data.wrong || []);
-    userAnswers = data.answers || {};
-    if (data.bank) currentBank = data.bank;
+    if (data.ttState) {
+      bankState.tt.answeredIds = new Set(data.ttState.answered || []);
+      bankState.tt.correctIds = new Set(data.ttState.correct || []);
+      bankState.tt.wrongIds = new Set(data.ttState.wrong || []);
+      bankState.tt.userAnswers = data.ttState.answers || {};
+    }
+    if (data.grState) {
+      bankState.gr.answeredIds = new Set(data.grState.answered || []);
+      bankState.gr.correctIds = new Set(data.grState.correct || []);
+      bankState.gr.wrongIds = new Set(data.grState.wrong || []);
+      bankState.gr.userAnswers = data.grState.answers || {};
+    }
   } catch (e) { localStorage.removeItem('nursing_quiz_progress'); }
 }
 
 function resetProgress() {
-  if (!confirm('确定要重置所有答题进度吗？此操作不可撤销。')) return;
-  answeredIds = new Set();
-  correctIds = new Set();
-  wrongIds = new Set();
-  userAnswers = {};
-  localStorage.removeItem('nursing_quiz_progress');
+  if (!confirm('确定要重置当前题库的答题进度吗？')) return;
+  bankState[currentBank] = { userAnswers: {}, answeredIds: new Set(), correctIds: new Set(), wrongIds: new Set() };
+  saveProgress();
   buildDisplayList();
   currentIndex = 0;
   renderAll();
@@ -707,7 +731,7 @@ document.addEventListener('keydown', (e) => {
 
   // Number keys / letter keys for options
   const key = e.key.toUpperCase();
-  if (/^[A-E]$/.test(key) && q.options.length > 0 && !answeredIds.has(q.id)) {
+  if (/^[A-E]$/.test(key) && q.options.length > 0 && !bs().answeredIds.has(q.id)) {
     selectOption(key);
     if (q.type === '多选题') {
       submitMultiChoice();
@@ -718,9 +742,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowRight' || e.key === 'n') { e.preventDefault(); nextQuestion(); }
   if (e.key === 'ArrowLeft' || e.key === 'p') { e.preventDefault(); prevQuestion(); }
   if (e.key === 'r') { e.preventDefault(); randomQuestion(); }
-  if (e.key === 'Enter' && !answeredIds.has(q.id)) {
+  if (e.key === 'Enter' && !bs().answeredIds.has(q.id)) {
     e.preventDefault();
-    if (userAnswers[q.id]) confirmAnswer();
+    if (bs().userAnswers[q.id]) confirmAnswer();
   }
 });
 
