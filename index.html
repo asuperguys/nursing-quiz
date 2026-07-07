@@ -243,7 +243,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
     <button class="btn btn-outline" onclick="prevQuestion()">⬅ 上一题</button>
     <span style="font-size:.9em;color:var(--sub)" id="navLabel">第 1 题</span>
     <button class="btn btn-outline" onclick="nextQuestion()">下一题 ➡</button>
-    <button class="btn btn-primary" onclick="randomQuestion()">🎲 随机一题</button>
+    <button class="btn btn-primary" id="btnShuffle" onclick="toggleShuffle()">🎲 打乱出题</button>
     <button class="btn btn-outline" style="color:var(--danger);border-color:var(--danger)" onclick="resetProgress()">🔄 重置进度</button>
   </div>
 </div>
@@ -257,6 +257,7 @@ let currentIndex = 0;
 let filterType = 'all';
 let autoNext = false;
 let viewMode = 'practice';
+let shuffleMode = false; // 打乱出题模式
 // 每个题库独立的进度
 let bankState = {
   tt: { userAnswers: {}, answeredIds: new Set(), correctIds: new Set(), wrongIds: new Set() },
@@ -384,8 +385,12 @@ function buildDisplayList() {
     list = list.filter(q => bs().wrongIds.has(q.id));
   }
 
-  // Sort by ID
-  list.sort((a, b) => a.id - b.id);
+  // Sort: shuffle or by ID
+  if (shuffleMode) {
+    list = [...list].sort(() => Math.random() - 0.5);
+  } else {
+    list.sort((a, b) => a.id - b.id);
+  }
 
   displayList = list;
   document.getElementById('statTotal').textContent = list.length;
@@ -635,9 +640,12 @@ function prevQuestion() {
   }
 }
 
-function randomQuestion() {
-  if (displayList.length === 0) return;
-  currentIndex = Math.floor(Math.random() * displayList.length);
+function toggleShuffle() {
+  shuffleMode = !shuffleMode;
+  const btn = document.getElementById('btnShuffle');
+  btn.textContent = shuffleMode ? '📋 顺序出题' : '🎲 打乱出题';
+  buildDisplayList();
+  currentIndex = 0;
   renderAll();
 }
 
@@ -741,7 +749,6 @@ document.addEventListener('keydown', (e) => {
   // Navigation
   if (e.key === 'ArrowRight' || e.key === 'n') { e.preventDefault(); nextQuestion(); }
   if (e.key === 'ArrowLeft' || e.key === 'p') { e.preventDefault(); prevQuestion(); }
-  if (e.key === 'r') { e.preventDefault(); randomQuestion(); }
   if (e.key === 'Enter' && !bs().answeredIds.has(q.id)) {
     e.preventDefault();
     if (bs().userAnswers[q.id]) confirmAnswer();
