@@ -259,7 +259,7 @@ function parseMarkdown(mdText) {
 }
 
 // ==================== DATA LOADING ====================
-// embedded - no fetch
+function loadBank(){} // no fetch
 
 // ==================== BANK SWITCHING ====================
 function switchBank(bankKey) {
@@ -506,7 +506,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !bs().answeredIds.has(q?.id) && bs().userAnswers[q?.id]) { e.preventDefault(); confirmAnswer(); }
 });
 
-// replaced by embedded init</script>
+// init replaced by embedded
+</script>
 
 <script>
 // ========== 内嵌题库数据 ==========
